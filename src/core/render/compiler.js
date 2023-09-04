@@ -148,6 +148,20 @@ export class Compiler {
     title = str;
 
     if (config.include) {
+
+      // EJD
+      // Fixing e.g. link to ./path/to/file.ts#L12
+      // For non-embeds, this gets resolved as ./path/to/file.ts?id=12
+      // (which is fine, I guess... it loads the correct file at least)
+      // But for embeds, it was trying to load that exact file, and not
+      // finding it
+      // So, if the file basename ends with "#foo", then strip it off here
+      //
+      const href_parts = href.split("/");
+      const [ href_basename ] = href_parts.pop().split("#");
+      href_parts.push(href_basename);
+      href = href_parts.join("/");
+
       if (!isAbsolutePath(href)) {
         href = getPath(
           this.contentBase,
@@ -179,6 +193,16 @@ export class Compiler {
       }
 
       embed.fragment = config.fragment;
+
+      // EJD
+      // Adding these to have a mechanism to specify what lines
+      // of the file you want to embed
+      // config.symbol is to point to a specific symbol (TS / JS)
+      //   (This requires a pre-processor of the markdown, to translate
+      //    `symbol` to `lines`)
+      //
+      embed.lines = config.lines;
+      embed.symbol = config.symbol;
 
       return embed;
     }

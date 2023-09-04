@@ -25,7 +25,10 @@ export function getAndRemoveConfig(str = '') {
     str = str
       .replace(/^('|")/, '')
       .replace(/('|")$/, '')
-      .replace(/(?:^|\s):([\w-]+:?)=?([\w-%]+)?/g, (m, key, value) => {
+      // EJD - allowing for the content to include the '.' character, 
+      // e.g. ':include :symbol=MyClass.foo'
+      //
+      .replace(/(?:^|\s):([\w-]+:?)=?([\w-%\.]+)?/g, (m, key, value) => {
         if (key.indexOf(':') === -1) {
           config[key] = (value && value.replace(/&quot;/g, '')) || true;
           return '';
@@ -34,6 +37,11 @@ export function getAndRemoveConfig(str = '') {
         return m;
       })
       .trim();
+  }
+
+  // EJD - default to "code" if found a "symbol"
+  if (Object.hasOwn(config, "symbol")) {
+    config.type = "code"
   }
 
   return { str, config };

@@ -50,7 +50,49 @@ function walkFetchEmbed({ embedTokens, compile, fetch }, cb) {
             const pattern = new RegExp(
               `(?:###|\\/\\/\\/)\\s*\\[${fragment}\\]([\\s\\S]*)(?:###|\\/\\/\\/)\\s*\\[${fragment}\\]`
             );
-            text = stripIndent((text.match(pattern) || [])[1] || '').trim();
+
+            // EJD - overloading the "lang" to allow you to specify what line of 
+            // the code this refers to...
+            // e.g. 
+            //  ```ts :line=23
+            //    var x = "x";
+            //    ...
+            //  ```
+            // The purpose of this is to allow you to inform the Prism line-numbers plugin
+            // (https://prismjs.com/plugins/line-numbers)
+            // of what lines you are embedding from the file.
+            // This requires a custom renderer in your docsify config, to parse these tags
+            // and set the corresponding info on the <pre> tag (data-start=123), and
+            // to then remove the tag from the lang
+            //
+            const match = text.match(pattern);
+
+            // If we find a match based on `fragment` - find what line the first
+            // matching [fragment] occurs..
+            //
+            if (match) {
+              const line = text.slice(0, match.index).split("\n").length + 1;
+              currentToken.embed.lang = `${currentToken.embed.lang} :line=${line}`;
+              text = stripIndent((text.match(pattern) || [])[1] || '').trim();
+            } else {
+              text = "";
+            }
+          } else if (currentToken.embed.lines) {
+
+            // EJD - if the title contains the `lines` config (e.g. ':include :lines=10-20'), then get
+            // the correct lines to include (and the starting line), form that
+            //
+            const [ from, to ] = currentToken.embed.lines.split("-");
+            currentToken.embed.lang = `${currentToken.embed.lang} :line=${from}`;
+            text = stripIndent(text.split("\n").slice(from - 1, to).join("\n"));
+
+            // EJD - if the last line is empty, the embed gets truncated by a line
+            // So just put in a space to prevent that
+            // (If you requested lines 10-20, you wouldn't want it truncated because line 20 is empty)
+            //
+            if (text.endsWith("\n")) {
+              text = text + " ";
+            }
           }
 
           embedToken = compile.lexer(
@@ -99,27 +141,27 @@ export function prerenderEmbed({ compiler, raw = '', fetch }, done) {
   const compile = compiler._marked;
   let tokens = compile.lexer(raw);
   const embedTokens = [];
-  const linkRE = compile.Lexer.rules.inline.link;
   const links = tokens.links;
 
   tokens.forEach((token, index) => {
-    if (token.type === 'paragraph') {
-      token.text = token.text.replace(
-        new RegExp(linkRE.source, 'g'),
-        (src, filename, href, title) => {
-          const embed = compiler.compileEmbed(href, title);
-
-          if (embed) {
-            embedTokens.push({
-              index,
-              embed,
-            });
-          }
-
-          return src;
+    // EJD - I think there was a bug here.
+    // We shouldn't need to reparse the tokens as "paragraphs" at this
+    // point. They should already be parsed out to links etc...
+    // So we just search for token.tokens.type === "link"
+    //
+    const { tokens = [] } = token;
+    tokens.forEach(token => {
+      if (token.type === "link") {
+        const { href, title } = token;
+        const embed = compiler.compileEmbed(href, title);
+        if (embed) {
+          embedTokens.push({
+            index,
+            embed,
+          });
         }
-      );
-    }
+      }
+    })
   });
 
   // keep track of which tokens have been embedded so far
@@ -139,10 +181,14 @@ export function prerenderEmbed({ compiler, raw = '', fetch }, done) {
 
       Object.assign(links, embedToken.links);
 
+      // EJD - if you embed (via a link), then leave the link
+      // in place, so that you can open the actual document also
+      // if you like...
+      //
       tokens = tokens
-        .slice(0, index)
+        .slice(0, index + 1)
         .concat(embedToken, tokens.slice(index + 1));
-      moves.push({ start: index, length: embedToken.length - 1 });
+      moves.push({ start: index + 1, length: embedToken.length });
     } else {
       cached[raw] = tokens.concat();
       tokens.links = cached[raw].links = links;
